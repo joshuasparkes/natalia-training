@@ -1,103 +1,368 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect } from "react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-white/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [searchParams, setSearchParams] = useState({
+    from: "",
+    to: "",
+    departDate: "",
+    returnDate: "",
+    passengers: 1,
+    cabinClass: "economy",
+  });
+  const [flights, setFlights] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [airports, setAirports] = useState([]);
+  const [selectedFlight, setSelectedFlight] = useState(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const cabinClasses = {
+    economy: "Economy",
+    premium: "Premium Economy",
+    business: "Business",
+    first: "First Class",
+  };
+
+  useEffect(() => {
+    const fetchAirports = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/airports");
+        if (!response.ok) throw new Error("Failed to fetch airports");
+        const data = await response.json();
+        setAirports(data);
+      } catch (err) {
+        console.error("Failed to load airports:", err);
+      }
+    };
+    fetchAirports();
+  }, []);
+
+  const formatDuration = (minutes) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  };
+
+  const formatDateTime = (dateString) => {
+    return new Date(dateString).toLocaleString("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: price.currency || "GBP",
+    }).format(price.amount);
+  };
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSelectedFlight(null);
+
+    try {
+      console.log("🔍 Initiating flight search with params:", searchParams);
+
+      const queryParams = new URLSearchParams({
+        from: searchParams.from.toUpperCase(),
+        to: searchParams.to.toUpperCase(),
+        departDate: searchParams.departDate,
+        returnDate: searchParams.returnDate,
+        passengers: searchParams.passengers,
+        cabinClass: searchParams.cabinClass,
+      }).toString();
+
+      const response = await fetch(
+        `http://localhost:5000/api/search-flights?${queryParams}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ Received flight data:", result);
+
+      if (result.status === "success") {
+        // Transform Duffel response into flights array
+        const offers = result.data?.data?.offers || [];
+        setFlights(
+          offers.map((offer) => ({
+            ...offer,
+            displayData: {
+              price: {
+                amount: parseFloat(offer.total_amount),
+                currency: offer.total_currency,
+                baseAmount: parseFloat(offer.base_amount),
+                taxAmount: parseFloat(offer.tax_amount || 0),
+              },
+              emissions: parseFloat(offer.total_emissions_kg || 0),
+            },
+          }))
+        );
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (err) {
+      console.error("❌ Error searching flights:", err);
+      setError(err.message || "Failed to search flights. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <main className="max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold text-center mb-8 text-black">
+          Flight Search
+        </h1>
+
+        <form
+          onSubmit={handleSearch}
+          className="bg-white p-6 rounded-lg shadow-md mb-8"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-black">
+                From
+              </label>
+              <input
+                type="text"
+                placeholder="Airport code (e.g., LHR)"
+                className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-black uppercase"
+                value={searchParams.from}
+                onChange={(e) =>
+                  setSearchParams({ ...searchParams, from: e.target.value })
+                }
+                maxLength={3}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-black">To</label>
+              <input
+                type="text"
+                placeholder="Airport code (e.g., JFK)"
+                className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-black uppercase"
+                value={searchParams.to}
+                onChange={(e) =>
+                  setSearchParams({ ...searchParams, to: e.target.value })
+                }
+                maxLength={3}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-black">
+                Cabin Class
+              </label>
+              <select
+                className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-black"
+                value={searchParams.cabinClass}
+                onChange={(e) =>
+                  setSearchParams({
+                    ...searchParams,
+                    cabinClass: e.target.value,
+                  })
+                }
+              >
+                {Object.entries(cabinClasses).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-black">
+                Departure Date
+              </label>
+              <input
+                type="date"
+                className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-black"
+                value={searchParams.departDate}
+                onChange={(e) =>
+                  setSearchParams({
+                    ...searchParams,
+                    departDate: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-black">
+                Passengers
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="9"
+                className="mt-1 block w-full rounded-md border border-gray-300 p-2 text-black"
+                value={searchParams.passengers}
+                onChange={(e) =>
+                  setSearchParams({
+                    ...searchParams,
+                    passengers: e.target.value,
+                  })
+                }
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="mt-6 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-300"
+            disabled={
+              loading ||
+              !searchParams.from ||
+              !searchParams.to ||
+              !searchParams.departDate
+            }
           >
-            <Image
-              className="dark:invert bg-red"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+            {loading ? "Searching..." : "Search Flights"}
+          </button>
+        </form>
+
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-8">
+            <p className="text-red-700">{error}</p>
+          </div>
+        )}
+
+        {flights.length > 0 && (
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4 text-black">
+              Available Flights ({flights.length})
+            </h2>
+            <div className="space-y-4">
+              {flights.map((offer) => (
+                <div
+                  key={offer.id}
+                  className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
+                  onClick={() =>
+                    setSelectedFlight(
+                      offer.id === selectedFlight?.id ? null : offer
+                    )
+                  }
+                >
+                  {offer.slices.map((slice, sliceIndex) => (
+                    <div key={slice.id} className="mb-4">
+                      {slice.segments.map((segment, segmentIndex) => (
+                        <div key={segment.id} className="mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-black">
+                              {segment.origin.city_name} (
+                              {segment.origin.iata_code})
+                            </span>
+                            →
+                            <span className="font-semibold text-black">
+                              {segment.destination.city_name} (
+                              {segment.destination.iata_code})
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-4 mt-1">
+                            <img
+                              src={segment.marketing_carrier.logo_symbol_url}
+                              alt={segment.marketing_carrier.name}
+                              className="h-6 w-auto"
+                            />
+                            <span className="text-sm text-black">
+                              {segment.marketing_carrier.name}{" "}
+                              {segment.marketing_carrier.iata_code}
+                              {segment.marketing_carrier_flight_number}
+                            </span>
+                          </div>
+
+                          <p className="text-sm text-black mt-1">
+                            {formatDateTime(segment.departing_at)} -{" "}
+                            {formatDateTime(segment.arriving_at)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-black">
+                      {new Intl.NumberFormat("en-GB", {
+                        style: "currency",
+                        currency: offer.total_currency,
+                      }).format(offer.total_amount)}
+                    </p>
+                    <p className="text-sm text-black">
+                      {cabinClasses[offer.cabin_class]}
+                    </p>
+                    {offer.total_emissions_kg && (
+                      <p className="text-xs text-green-600">
+                        CO₂: {offer.total_emissions_kg}kg
+                        Time zone: {offer.slices[0].origin.time_zone}
+                      </p>
+                    )}
+                  </div>
+
+                  {selectedFlight?.id === offer.id && (
+                    <div className="mt-4 border-t pt-4">
+                      <h3 className="text-sm font-semibold text-black mb-2">
+                        Additional Information
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4 text-sm text-black">
+                        <div>
+                          <p>
+                            Base fare:{" "}
+                            {new Intl.NumberFormat("en-GB", {
+                              style: "currency",
+                              currency: offer.total_currency,
+                            }).format(offer.base_amount)}
+                          </p>
+                          <p>
+                            Taxes & fees:{" "}
+                            {new Intl.NumberFormat("en-GB", {
+                              style: "currency",
+                              currency: offer.total_currency,
+                            }).format(offer.tax_amount || 0)}
+                          </p>
+                        </div>
+                        {offer.conditions?.change_before_departure && (
+                          <div>
+                            <p>
+                              Change fee:{" "}
+                              {new Intl.NumberFormat("en-GB", {
+                                style: "currency",
+                                currency:
+                                  offer.conditions.change_before_departure
+                                    .penalty_currency,
+                              }).format(
+                                offer.conditions.change_before_departure
+                                  .penalty_amount
+                              )}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!loading && flights.length === 0 && searchParams.from && (
+          <div className="text-center text-black mt-8">
+            No flights found matching your criteria.
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
